@@ -35,3 +35,10 @@ model_ts*.txt
 .vscode
 _darcs
 .DS_Store
+
+*.c
+
+datasets/
+
+
+vis/

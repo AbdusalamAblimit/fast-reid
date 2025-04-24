@@ -21,10 +21,11 @@ from collections import Mapping
 from fastreid.config import configurable
 from fastreid.utils import comm
 from . import samplers
-from .common import CommDataset
+from .common import CommDataset ,CommonPoseDataset
 from .data_utils import DataLoaderX
 from .datasets import DATASET_REGISTRY
 from .transforms import build_transforms
+from .transforms import build_pose_transforms
 
 __all__ = [
     "build_reid_train_loader",
@@ -36,6 +37,10 @@ _root = os.getenv("FASTREID_DATASETS", "datasets")
 
 def _train_loader_from_config(cfg, *, train_set=None, transforms=None, sampler=None, **kwargs):
     if transforms is None:
+        if cfg.DATASETS.POSE:
+            transforms = build_pose_transforms(cfg, is_train=True)
+        else:
+            transforms = build_transforms(cfg, is_train=True)
         transforms = build_transforms(cfg, is_train=True)
 
     if train_set is None:
@@ -45,8 +50,10 @@ def _train_loader_from_config(cfg, *, train_set=None, transforms=None, sampler=N
             if comm.is_main_process():
                 data.show_train()
             train_items.extend(data.train)
-
-        train_set = CommDataset(train_items, transforms, relabel=True)
+        if 'POSE' in cfg.DATASETS and cfg.DATASETS.POSE:
+            train_set = CommonPoseDataset(train_items, transforms, relabel=True)
+        else:
+            train_set = CommDataset(train_items, transforms, relabel=True)
 
     if sampler is None:
         sampler_name = cfg.DATALOADER.SAMPLER_TRAIN
@@ -92,7 +99,11 @@ def build_reid_train_loader(
     mini_batch_size = total_batch_size // comm.get_world_size()
 
     batch_sampler = torch.utils.data.sampler.BatchSampler(sampler, mini_batch_size, True)
-
+    if num_workers ==0:
+        multiprocessing_context = None
+    else:
+        multiprocessing_context = 'spawn'
+        
     train_loader = DataLoaderX(
         comm.get_local_rank(),
         dataset=train_set,
@@ -100,6 +111,8 @@ def build_reid_train_loader(
         batch_sampler=batch_sampler,
         collate_fn=fast_batch_collator,
         pin_memory=True,
+        multiprocessing_context=multiprocessing_context
+        
     )
 
     return train_loader
@@ -107,7 +120,13 @@ def build_reid_train_loader(
 
 def _test_loader_from_config(cfg, *, dataset_name=None, test_set=None, num_query=0, transforms=None, **kwargs):
     if transforms is None:
+        if cfg.DATASETS.POSE:
+            transforms = build_pose_transforms(cfg, is_train=False)
+        else:
+            transforms = build_transforms(cfg, is_train=False)
         transforms = build_transforms(cfg, is_train=False)
+
+
 
     if test_set is None:
         assert dataset_name is not None, "dataset_name must be explicitly passed in when test_set is not provided"
@@ -115,7 +134,10 @@ def _test_loader_from_config(cfg, *, dataset_name=None, test_set=None, num_query
         if comm.is_main_process():
             data.show_test()
         test_items = data.query + data.gallery
-        test_set = CommDataset(test_items, transforms, relabel=False)
+        if 'POSE' in cfg.DATASETS and cfg.DATASETS.POSE:
+            test_set = CommonPoseDataset(test_items, transforms, relabel=True)
+        else:
+            test_set = CommDataset(test_items, transforms, relabel=False)
 
         # Update query number
         num_query = len(data.query)
@@ -161,6 +183,7 @@ def build_reid_test_loader(test_set, test_batch_size, num_query, num_workers=4):
         num_workers=num_workers,  # save some memory
         collate_fn=fast_batch_collator,
         pin_memory=True,
+        multiprocessing_context='spawn'
     )
     return test_loader, num_query
 

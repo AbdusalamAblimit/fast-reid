@@ -1,5 +1,6 @@
 MODEL:
   META_ARCHITECTURE: Baseline
+  DEVICE : "cuda:0"
 
   BACKBONE:
     NAME: build_resnet_backbone

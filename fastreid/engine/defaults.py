@@ -18,7 +18,7 @@ import torch
 from torch.nn.parallel import DistributedDataParallel
 
 from fastreid.data import build_reid_test_loader, build_reid_train_loader
-from fastreid.evaluation import (ReidEvaluator,
+from fastreid.evaluation import (ReidEvaluator,PoseReidEvaluator,
                                  inference_on_dataset, print_csv_format)
 from fastreid.modeling.meta_arch import build_model
 from fastreid.solver import build_lr_scheduler, build_optimizer
@@ -412,7 +412,12 @@ class DefaultTrainer(TrainerBase):
     @classmethod
     def build_evaluator(cls, cfg, dataset_name, output_dir=None):
         data_loader, num_query = cls.build_test_loader(cfg, dataset_name)
-        return data_loader, ReidEvaluator(cfg, num_query, output_dir)
+        if cfg.DATASETS.POSE:
+            evaluator = PoseReidEvaluator(cfg, num_query, output_dir)
+        else:
+            evaluator=ReidEvaluator(cfg, num_query, output_dir)
+        # evaluator=ReidEvaluator(cfg, num_query, output_dir)
+        return data_loader, evaluator
 
     @classmethod
     def test(cls, cfg, model):

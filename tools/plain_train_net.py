@@ -20,7 +20,7 @@ from fastreid.evaluation.testing import flatten_results_dict
 from fastreid.engine import default_argument_parser, default_setup, launch
 from fastreid.modeling import build_model
 from fastreid.solver import build_lr_scheduler, build_optimizer
-from fastreid.evaluation import inference_on_dataset, print_csv_format, ReidEvaluator
+from fastreid.evaluation import inference_on_dataset, print_csv_format, ReidEvaluator,PoseReidEvaluator
 from fastreid.utils.checkpoint import Checkpointer, PeriodicCheckpointer
 from fastreid.utils import comm
 from fastreid.utils.events import (
@@ -35,7 +35,12 @@ logger = logging.getLogger("fastreid")
 
 def get_evaluator(cfg, dataset_name, output_dir=None):
     data_loader, num_query = build_reid_test_loader(cfg, dataset_name=dataset_name)
-    return data_loader, ReidEvaluator(cfg, num_query, output_dir)
+    if cfg.DATASETS.POSE:
+        evaluator =PoseReidEvaluator(cfg, num_query, output_dir)
+    else:
+        evaluator=ReidEvaluator(cfg, num_query, output_dir)
+    
+    return data_loader, evaluator
 
 
 def do_test(cfg, model):

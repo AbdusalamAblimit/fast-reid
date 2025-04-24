@@ -101,8 +101,8 @@ class Baseline(nn.Module):
         features = self.backbone(images)
 
         if self.training:
-            assert "targets" in batched_inputs, "Person ID annotation are missing in training!"
-            targets = batched_inputs["targets"]
+            assert "pid" in batched_inputs, "Person ID annotation are missing in training!"
+            targets = batched_inputs["pid"]
 
             # PreciseBN flag, When do preciseBN on different dataset, the number of classes in new dataset
             # may be larger than that in the original dataset, so the circle/arcface will
@@ -121,7 +121,7 @@ class Baseline(nn.Module):
         Normalize and batch the input images.
         """
         if isinstance(batched_inputs, dict):
-            images = batched_inputs['images']
+            images = batched_inputs['img']
         elif isinstance(batched_inputs, torch.Tensor):
             images = batched_inputs
         else:
@@ -185,4 +185,150 @@ class Baseline(nn.Module):
                 cosface_kwargs.get('gamma'),
             ) * cosface_kwargs.get('scale')
 
+        return loss_dict
+
+
+
+
+
+
+
+
+@META_ARCH_REGISTRY.register()
+class PoseBaseline(nn.Module):
+    """
+    this interface is experimental .
+    带姿态信息的Baseline模型：
+      - backbone 接收 (img, heatmap, visibility)，输出全局和局部特征
+      - heads 分为 global_head 和 local_head，分别对两种特征做分类与度量学习
+    """
+
+    @configurable
+    def __init__(
+        self,
+        *,
+        backbone,
+        global_head,
+        local_head,
+        pixel_mean,
+        pixel_std,
+        loss_kwargs=None
+    ):
+        super().__init__()
+        # 主干网络，输入 img, heatmap, visibility
+        self.backbone = backbone
+        # 分类与度量头：全局、局部
+        self.global_head = global_head
+        self.local_head = local_head
+        # 损失超参
+        self.loss_kwargs = loss_kwargs
+        # 图像归一化参数
+        self.register_buffer('pixel_mean', torch.Tensor(pixel_mean).view(1, -1, 1, 1), False)
+        self.register_buffer('pixel_std', torch.Tensor(pixel_std).view(1, -1, 1, 1), False)
+
+    @classmethod
+    def from_config(cls, cfg):
+        # 根据 cfg 构建 backbone 和 heads
+        backbone = build_backbone(cfg)
+        # 假设 cfg.MODEL.GLOBAL_HEAD / LOCAL_HEAD 配置
+        global_head = build_heads(cfg)
+        local_head = build_heads(cfg)
+        return {
+            'backbone': backbone,
+            'global_head': global_head,
+            'local_head': local_head,
+            'pixel_mean': cfg.MODEL.PIXEL_MEAN,
+            'pixel_std': cfg.MODEL.PIXEL_STD,
+            'loss_kwargs': cfg.MODEL.LOSSES,
+        }
+
+    @property
+    def device(self):
+        return self.pixel_mean.device
+
+    def preprocess_image(self, batched_inputs):
+        """
+        对输入图像进行归一化：减均值除以标准差
+        """
+        images = batched_inputs['img']  # Tensor[B,C,H,W]
+        images = images.to(self.device)
+        images = images.sub_(self.pixel_mean).div_(self.pixel_std)
+        return images
+
+    def forward(self, batched_inputs):
+        """
+        前向：训练阶段返回两部分损失字典，测试阶段返回特征和分类结果
+        """
+        # 准备输入
+        images = self.preprocess_image(batched_inputs)
+        heatmap = batched_inputs['heatmap'].to(self.device)
+        visibility = batched_inputs['visibility'].to(self.device)
+
+        # backbone 提取全局 & 局部特征
+        feat_global, feat_local = self.backbone(images, heatmap, visibility)
+        # feat_global = self.backbone(images)
+        # feat_local = feat_global
+
+        if self.training:
+            pid = batched_inputs['pid'].to(self.device)
+            # 全局头输出
+            out_g = self.global_head(feat_global, pid)
+            # 局部头输出
+            out_l = self.local_head(feat_local, pid)
+            # 分别计算损失
+            loss_g = self._compute_losses(out_g, pid, prefix='global')
+            loss_l = self._compute_losses(out_l, pid, prefix='local')
+            # 合并两个损失字典
+            loss_dict = {}
+            loss_dict.update(loss_g)
+            loss_dict.update(loss_l)
+            return loss_dict
+        else:
+            # 测试阶段只返回两种输出
+            out_g = self.global_head(feat_global)
+            out_l = self.local_head(feat_local)
+            return {'global': out_g, 'local': out_l}
+            # return out_g
+
+    def _compute_losses(self, outputs, targets, prefix=''):
+        """
+        根据 outputs 计算交叉熵、三元组等损失，prefix 用于区分全局/局部
+        outputs 中应包含:
+           - 'pred_class_logits'
+           - 'cls_outputs'
+           - 'features'
+        """
+        loss_dict = {}
+        # 交叉熵
+        if 'CrossEntropyLoss' in self.loss_kwargs.NAME:
+            ce_params = self.loss_kwargs.CE
+            loss_ce = cross_entropy_loss(
+                outputs['cls_outputs'], targets,
+                ce_params.EPSILON, ce_params.ALPHA
+            ) * ce_params.SCALE
+            loss_dict[f'{prefix}_loss_cls'] = loss_ce
+        # 三元组
+        if 'TripletLoss' in self.loss_kwargs.NAME:
+            tri_params = self.loss_kwargs.TRI
+            loss_tri = triplet_loss(
+                outputs['features'], targets,
+                tri_params.MARGIN, tri_params.NORM_FEAT, tri_params.HARD_MINING
+            ) * tri_params.SCALE
+            loss_dict[f'{prefix}_loss_triplet'] = loss_tri
+        # CircleLoss
+        if 'CircleLoss' in self.loss_kwargs.NAME:
+            cir_params = self.loss_kwargs.CIRCLE
+            loss_circle = pairwise_circleloss(
+                outputs['features'], targets,
+                cir_params.MARGIN, cir_params.GAMMA
+            ) * cir_params.SCALE
+            loss_dict[f'{prefix}_loss_circle'] = loss_circle
+        # Cosface
+        if 'Cosface' in self.loss_kwargs.NAME:
+            cos_params = self.loss_kwargs.COSFACE
+            loss_cos = pairwise_cosface(
+                outputs['features'], targets,
+                cos_params.MARGIN, cos_params.GAMMA
+            ) * cos_params.SCALE
+            loss_dict[f'{prefix}_loss_cosface'] = loss_cos
         return loss_dict

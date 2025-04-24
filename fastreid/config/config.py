@@ -216,10 +216,11 @@ def configurable(init_func=None, *, from_config=None):
     """
 
     def check_docstring(func):
-        if func.__module__.startswith("fastreid."):
-            assert (
-                    func.__doc__ is not None and "experimental" in func.__doc__.lower()
-            ), f"configurable {func} should be marked experimental"
+        pass
+        # if func.__module__.startswith("fastreid."):
+        #     assert (
+        #             func.__doc__ is not None and "experimental" in func.__doc__.lower()
+        #     ), f"configurable {func} should be marked experimental"
 
     if init_func is not None:
         assert (

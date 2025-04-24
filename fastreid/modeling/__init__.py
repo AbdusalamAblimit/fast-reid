@@ -9,7 +9,16 @@ from .backbones import (
     BACKBONE_REGISTRY,
     build_resnet_backbone,
     build_backbone,
+    
 )
+
+from .backbones import (
+    BACKBONE_REGISTRY,
+    build_pose_resnet_backbone,
+    build_backbone,
+    
+)
+
 from .heads import (
     REID_HEADS_REGISTRY,
     build_heads,

@@ -203,6 +203,8 @@ _C.DATASETS.NAMES = ("Market1501",)
 _C.DATASETS.TESTS = ("Market1501",)
 # Combine trainset and testset joint training
 _C.DATASETS.COMBINEALL = False
+# 是否是Pose数据集
+_C.DATASETS.POSE = False
 
 # -----------------------------------------------------------------------------
 # DataLoader

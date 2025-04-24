@@ -1,5 +1,5 @@
 from .evaluator import DatasetEvaluator, inference_context, inference_on_dataset
-from .reid_evaluation import ReidEvaluator
+from .reid_evaluation import ReidEvaluator,PoseReidEvaluator
 from .clas_evaluator import ClasEvaluator
 from .testing import print_csv_format, verify_results
 

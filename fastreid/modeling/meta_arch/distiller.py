@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 from fastreid.config import get_cfg
-from fastreid.modeling.meta_arch import META_ARCH_REGISTRY, build_model, Baseline
+from fastreid.modeling.meta_arch import META_ARCH_REGISTRY, build_model, Baseline,PoseBaseline
 from fastreid.utils.checkpoint import Checkpointer
 
 logger = logging.getLogger(__name__)

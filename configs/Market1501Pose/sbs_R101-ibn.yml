@@ -1,0 +1,31 @@
+_BASE_: ../Base-SBS.yml
+
+MODEL:
+  META_ARCHITECTURE: PoseBaseline
+  BACKBONE:
+    NAME: build_pose_resnet_backbone
+    DEPTH: 101x
+    WITH_IBN: True
+
+
+
+DATASETS:
+  NAMES: ("Market1501Pose",)
+  TESTS: ("Market1501Pose",)
+  POSE: true
+
+OUTPUT_DIR: logs/market1501pose/sbs_R101-ibn-256-192
+
+
+INPUT:
+  SIZE_TRAIN: [ 256, 192 ]
+  SIZE_TEST: [ 256, 192 ]
+  PADDING:
+    ENABLED: True
+    SIZE: 12
+
+DATALOADER:
+
+  NUM_WORKERS: 8
+SOLVER:
+  MAX_EPOCH: 60

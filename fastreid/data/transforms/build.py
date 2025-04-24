@@ -7,6 +7,7 @@
 import torchvision.transforms as T
 
 from .transforms import *
+from .pose_transforms import *
 from .autoaugment import AutoAugment
 
 
@@ -98,3 +99,98 @@ def build_transforms(cfg, is_train=True):
             res.append(T.CenterCrop(size=crop_size[0] if len(crop_size) == 1 else crop_size))
         res.append(ToTensor())
     return T.Compose(res)
+
+
+
+
+def build_pose_transforms(cfg, is_train=True):
+    res = []
+    # ------- 1) 与原版逻辑保持一致：读取 cfg -----------
+            # crop
+    size_train = cfg.INPUT.SIZE_TRAIN
+    do_crop = cfg.INPUT.CROP.ENABLED
+    crop_size = cfg.INPUT.CROP.SIZE
+    crop_scale = cfg.INPUT.CROP.SCALE
+    crop_ratio = cfg.INPUT.CROP.RATIO
+
+    # augmix augmentation
+    do_augmix = cfg.INPUT.AUGMIX.ENABLED
+    augmix_prob = cfg.INPUT.AUGMIX.PROB
+
+    # auto augmentation
+    do_autoaug = cfg.INPUT.AUTOAUG.ENABLED
+    autoaug_prob = cfg.INPUT.AUTOAUG.PROB
+
+    # horizontal filp
+    do_flip = cfg.INPUT.FLIP.ENABLED
+    flip_prob = cfg.INPUT.FLIP.PROB
+
+    # padding
+    do_pad = cfg.INPUT.PADDING.ENABLED
+    padding_size = cfg.INPUT.PADDING.SIZE
+    padding_mode = cfg.INPUT.PADDING.MODE
+
+    # color jitter
+    do_cj = cfg.INPUT.CJ.ENABLED
+    cj_prob = cfg.INPUT.CJ.PROB
+    cj_brightness = cfg.INPUT.CJ.BRIGHTNESS
+    cj_contrast = cfg.INPUT.CJ.CONTRAST
+    cj_saturation = cfg.INPUT.CJ.SATURATION
+    cj_hue = cfg.INPUT.CJ.HUE
+
+    # random affine
+    do_affine = cfg.INPUT.AFFINE.ENABLED
+
+    # random erasing
+    do_rea = cfg.INPUT.REA.ENABLED
+    rea_prob = cfg.INPUT.REA.PROB
+    rea_value = cfg.INPUT.REA.VALUE
+
+    # random patch
+    do_rpt = cfg.INPUT.RPT.ENABLED
+    rpt_prob = cfg.INPUT.RPT.PROB
+    # ------- 2) 将 torchvision 增强换成 *_Pose -----------
+    if is_train:
+        # if do_autoaug:
+        #     res.append(RandomApplyPose([AutoAugmentPose()], p=autoaug_prob))
+
+        if size_train[0] > 0:
+            res.append(ResizePose(size_train[0] if len(size_train)==1 else size_train))
+
+        # if do_crop:
+        #     res.append(RandomResizedCropPose(crop_size[0] if len(crop_size)==1 else crop_size,
+        #                                      scale=crop_scale, ratio=crop_ratio))
+        # if do_pad:
+        #     res.append(PadPose(padding_size, padding_mode=padding_mode))
+        #     res.append(RandomResizedCropPose(size_train[0] if len(size_train)==1 else size_train,
+        #                                      scale=(1.0,1.0), ratio=(1.0,1.0)))  # random‐crop 同步
+
+        if do_flip:
+            res.append(RandomHorizontalFlipPose(flip_prob))
+
+        # if do_cj:
+        #     res.append(RandomApplyPose([ColorJitterPose(...)], p=cj_prob))
+
+        # if do_affine:
+        #     res.append(RandomAffinePose(...))
+
+        # if do_augmix:
+        #     res.append(AugMixPose(prob=augmix_prob))
+
+        res.append(ToTensorPose())           # 转 tensor & 归一化
+        if do_rea:
+            res.append(RandomErasingPose(prob=rea_prob, value=rea_value))
+        # if do_rpt:
+        #     res.append(RandomPatchPose(prob_happen=rpt_prob))
+    else:
+        size_test = cfg.INPUT.SIZE_TEST
+        do_crop = cfg.INPUT.CROP.ENABLED
+        crop_size = cfg.INPUT.CROP.SIZE
+        # 测试阶段
+        if size_test[0] > 0:
+            res.append(ResizePose(size_test[0] if len(size_test)==1 else size_test))
+        # if do_crop:
+        #     res.append(CenterCropPose(crop_size[0] if len(crop_size)==1 else crop_size))
+        res.append(ToTensorPose())
+
+    return ComposePose(res)
