@@ -301,14 +301,20 @@ class PoseBaseline(nn.Module):
         前向：训练阶段返回两部分损失字典，测试阶段返回特征和分类结果
         """
         # 准备输入
-        images_raw = batched_inputs["img"]
+        # images_raw = batched_inputs["img"]
         images,images_for_pose = self.preprocess_image(batched_inputs)
         with torch.no_grad():
             pose_res = self.pose_net.backbone(images_for_pose)
             pose_res = self.pose_net.head(pose_res)
         heatmap = pose_res[0]
         visibility = pose_res[1]
+        # heatmap = heatmap.detach()
+        # visibility = visibility.detach()
         # backbone 提取全局 & 局部特征
+        
+        # heatmap = None
+        # visibility = None
+        
         
         feat_global, feat_local = self.backbone(images, heatmap, visibility)
         # feat_global = self.backbone(images)

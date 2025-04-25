@@ -420,6 +420,7 @@ def build_pose_resnet_backbone(cfg):
         model.add_module('conv_proj', proj)
         torch.nn.init.kaiming_normal_(local_proj.weight, mode='fan_out', nonlinearity='relu')
         model.add_module('local_conv_proj', local_proj)
+        model.heatmap_conv = nn.Conv2d(17, 64, kernel_size=1, bias=False)
     
     
     if pretrain:

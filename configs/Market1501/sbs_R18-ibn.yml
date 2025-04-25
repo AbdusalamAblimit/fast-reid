@@ -3,7 +3,7 @@ _BASE_: ../Base-SBS.yml
 MODEL:
   BACKBONE:
     NAME: build_pose_resnet_backbone
-    DEPTH: 50x
+    DEPTH: 18x
     WITH_IBN: True
   META_ARCHITECTURE: PoseBaseline
 
@@ -23,7 +23,7 @@ DATASETS:
   TESTS: ("Market1501",)
   POSE: true
 DATALOADER:
-  NUM_WORKERS: 4
-SOLVER:
-  AMP:
-    ENABLED: false
+  NUM_WORKERS: 8
+# SOLVER:
+#   AMP:
+#     ENABLED: true

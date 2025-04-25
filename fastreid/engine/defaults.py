@@ -377,7 +377,7 @@ class DefaultTrainer(TrainerBase):
         It now calls :func:`fastreid.solver.build_optimizer`.
         Overwrite it if you'd like a different optimizer.
         """
-        return build_optimizer(cfg, model)
+        return build_optimizer(cfg, model, contiguous=False)
 
     @classmethod
     def build_lr_scheduler(cls, cfg, optimizer, iters_per_epoch):
