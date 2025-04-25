@@ -188,19 +188,31 @@ class Baseline(nn.Module):
         return loss_dict
 
 
+from mmengine.config import Config
+from mmpose.models import build_posenet
+from mmengine.runner import load_checkpoint
+from mmpose.utils import register_all_modules as register_all_modules_mmpose
+from mmpose.models.data_preprocessors import PoseDataPreprocessor
+register_all_modules_mmpose()
 
 
 
 
+POSE_CFG = "pose/td-hm_ViTPose-huge_8xb64-210e_coco-256x192.py"
+POSE_CKPT = ("https://download.openmmlab.com/mmpose/v1/body_2d_keypoint/topdown_heatmap/"
+             "coco/td-hm_ViTPose-huge_8xb64-210e_coco-256x192-e32adcd4_20230314.pth")
+
+VIS_CFG = "pose/config_vispredict.py"
+VIS_CKPT = "pretrained/best_coco_AP_epoch_210.pth"
 
 
 @META_ARCH_REGISTRY.register()
 class PoseBaseline(nn.Module):
     """
     this interface is experimental .
-    带姿态信息的Baseline模型：
+    带姿态信息的Baseline模型
       - backbone 接收 (img, heatmap, visibility)，输出全局和局部特征
-      - heads 分为 global_head 和 local_head，分别对两种特征做分类与度量学习
+      - heads 分为 global_head 和 local_head分别对两种特征做分类与度量学习
     """
 
     @configurable
@@ -212,8 +224,10 @@ class PoseBaseline(nn.Module):
         local_head,
         pixel_mean,
         pixel_std,
+        pose_net,
+        device,
         loss_kwargs=None
-    ):
+       ):
         super().__init__()
         # 主干网络，输入 img, heatmap, visibility
         self.backbone = backbone
@@ -225,6 +239,19 @@ class PoseBaseline(nn.Module):
         # 图像归一化参数
         self.register_buffer('pixel_mean', torch.Tensor(pixel_mean).view(1, -1, 1, 1), False)
         self.register_buffer('pixel_std', torch.Tensor(pixel_std).view(1, -1, 1, 1), False)
+        
+
+        self.pose_net = pose_net
+        for name, param in pose_net.named_parameters():
+            param.requires_grad = False
+            
+            
+            
+        self.pose_mean = torch.tensor([123.675, 116.28,  103.53], device=device) \
+                    .view(1,3,1,1)
+        self.pose_std  = torch.tensor([ 58.395,  57.12,   57.375], device=device) \
+                            .view(1,3,1,1)
+
 
     @classmethod
     def from_config(cls, cfg):
@@ -233,6 +260,11 @@ class PoseBaseline(nn.Module):
         # 假设 cfg.MODEL.GLOBAL_HEAD / LOCAL_HEAD 配置
         global_head = build_heads(cfg)
         local_head = build_heads(cfg)
+        pose_cfg = Config.fromfile(VIS_CFG)
+        posenet = build_posenet(pose_cfg.model)
+        ckpt = load_checkpoint(posenet, VIS_CKPT, map_location='cpu')
+        
+        
         return {
             'backbone': backbone,
             'global_head': global_head,
@@ -240,6 +272,8 @@ class PoseBaseline(nn.Module):
             'pixel_mean': cfg.MODEL.PIXEL_MEAN,
             'pixel_std': cfg.MODEL.PIXEL_STD,
             'loss_kwargs': cfg.MODEL.LOSSES,
+            'pose_net': posenet,
+            'device':  cfg.MODEL.DEVICE
         }
 
     @property
@@ -247,24 +281,35 @@ class PoseBaseline(nn.Module):
         return self.pixel_mean.device
 
     def preprocess_image(self, batched_inputs):
-        """
-        对输入图像进行归一化：减均值除以标准差
-        """
+        
+        
+        images_raw = batched_inputs['img']  # Tensor[B,C,H,W] 0-255 or 0-1
+        # ——— 走 PoseNet 应该有的预处理 ———
+        # PackPoseInputs 之后，PoseDataPreprocessor 接受一个 dict，返回 dict:
+        images_for_pose = (images_raw - self.pose_mean) / self.pose_std   # N×3×256×192
+
+
+        # 对输入图像进行归一化：减均值除以标准差
         images = batched_inputs['img']  # Tensor[B,C,H,W]
         images = images.to(self.device)
         images = images.sub_(self.pixel_mean).div_(self.pixel_std)
-        return images
+        
+        return images,images_for_pose
 
     def forward(self, batched_inputs):
         """
         前向：训练阶段返回两部分损失字典，测试阶段返回特征和分类结果
         """
         # 准备输入
-        images = self.preprocess_image(batched_inputs)
-        heatmap = batched_inputs['heatmap'].to(self.device)
-        visibility = batched_inputs['visibility'].to(self.device)
-
+        images_raw = batched_inputs["img"]
+        images,images_for_pose = self.preprocess_image(batched_inputs)
+        with torch.no_grad():
+            pose_res = self.pose_net.backbone(images_for_pose)
+            pose_res = self.pose_net.head(pose_res)
+        heatmap = pose_res[0]
+        visibility = pose_res[1]
         # backbone 提取全局 & 局部特征
+        
         feat_global, feat_local = self.backbone(images, heatmap, visibility)
         # feat_global = self.backbone(images)
         # feat_local = feat_global
