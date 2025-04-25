@@ -9,7 +9,7 @@ from .build import (
     build_reid_train_loader,
     build_reid_test_loader
 )
-from .common import CommDataset,CommonPoseDataset
+from .common import CommDataset
 
 # ensure the builtin datasets are registered
 from . import datasets, samplers  # isort:skip

@@ -24,3 +24,6 @@ DATASETS:
   POSE: true
 DATALOADER:
   NUM_WORKERS: 4
+SOLVER:
+  AMP:
+    ENABLED: false

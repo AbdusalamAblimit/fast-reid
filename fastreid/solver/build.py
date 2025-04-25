@@ -189,6 +189,18 @@ def build_optimizer(cfg, model, contiguous=True):
         freeze_layers=cfg.MODEL.FREEZE_LAYERS if cfg.SOLVER.FREEZE_ITERS > 0 else [],
     )
 
+    # # ── 在这里过滤掉所有 requires_grad=False 的参数 ──
+    # filtered = []
+    # for group in params:  # params 是一个 param_group 的 list
+    #     ps = [p for p in group['params'] if p.requires_grad]
+    #     if not ps:
+    #         continue
+    #     new_group = group.copy()
+    #     new_group['params'] = ps
+    #     filtered.append(new_group)
+    # params = filtered
+    # # ────────────────────────────────────────────────
+
     if contiguous:
         params = ContiguousParams(params)
     solver_opt = cfg.SOLVER.OPT

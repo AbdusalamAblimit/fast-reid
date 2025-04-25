@@ -16,12 +16,12 @@ if TORCH_MAJOR == 1 and TORCH_MINOR < 8:
 else:
     string_classes = str
 
-from collections import Mapping
+from collections.abc import Mapping
 
 from fastreid.config import configurable
 from fastreid.utils import comm
 from . import samplers
-from .common import CommDataset ,CommonPoseDataset
+from .common import CommDataset 
 from .data_utils import DataLoaderX
 from .datasets import DATASET_REGISTRY
 from .transforms import build_transforms
@@ -50,10 +50,8 @@ def _train_loader_from_config(cfg, *, train_set=None, transforms=None, sampler=N
             if comm.is_main_process():
                 data.show_train()
             train_items.extend(data.train)
-        if 'POSE' in cfg.DATASETS and cfg.DATASETS.POSE:
-            train_set = CommonPoseDataset(train_items, transforms, relabel=True)
-        else:
-            train_set = CommDataset(train_items, transforms, relabel=True)
+
+        train_set = CommDataset(train_items, transforms, relabel=True)
 
     if sampler is None:
         sampler_name = cfg.DATALOADER.SAMPLER_TRAIN
@@ -134,10 +132,7 @@ def _test_loader_from_config(cfg, *, dataset_name=None, test_set=None, num_query
         if comm.is_main_process():
             data.show_test()
         test_items = data.query + data.gallery
-        if 'POSE' in cfg.DATASETS and cfg.DATASETS.POSE:
-            test_set = CommonPoseDataset(test_items, transforms, relabel=True)
-        else:
-            test_set = CommDataset(test_items, transforms, relabel=False)
+        test_set = CommDataset(test_items, transforms, relabel=False)
 
         # Update query number
         num_query = len(data.query)
