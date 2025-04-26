@@ -251,6 +251,7 @@ class PoseBaseline(nn.Module):
                     .view(1,3,1,1)
         self.pose_std  = torch.tensor([ 58.395,  57.12,   57.375], device=device) \
                             .view(1,3,1,1)
+        self._vis_counter = 0
 
 
     @classmethod
@@ -283,10 +284,10 @@ class PoseBaseline(nn.Module):
     def preprocess_image(self, batched_inputs):
         
         
-        images_raw = batched_inputs['img']  # Tensor[B,C,H,W] 0-255 or 0-1
+        # images_raw = batched_inputs['img']  # Tensor[B,C,H,W] 0-255 or 0-1
         # ——— 走 PoseNet 应该有的预处理 ———
         # PackPoseInputs 之后，PoseDataPreprocessor 接受一个 dict，返回 dict:
-        images_for_pose = (images_raw - self.pose_mean) / self.pose_std   # N×3×256×192
+        # images_for_pose = (images_raw - self.pose_mean) / self.pose_std   # N×3×256×192
 
 
         # 对输入图像进行归一化：减均值除以标准差
@@ -294,26 +295,33 @@ class PoseBaseline(nn.Module):
         images = images.to(self.device)
         images = images.sub_(self.pixel_mean).div_(self.pixel_std)
         
-        return images,images_for_pose
+        return images
 
     def forward(self, batched_inputs):
         """
         前向：训练阶段返回两部分损失字典，测试阶段返回特征和分类结果
         """
         # 准备输入
-        # images_raw = batched_inputs["img"]
-        images,images_for_pose = self.preprocess_image(batched_inputs)
+        # images_raw = batched_inputs["img"].clone()
+        
+        images= self.preprocess_image(batched_inputs)
         with torch.no_grad():
-            pose_res = self.pose_net.backbone(images_for_pose)
+            pose_res = self.pose_net.backbone(images)
             pose_res = self.pose_net.head(pose_res)
         heatmap = pose_res[0]
         visibility = pose_res[1]
-        # heatmap = heatmap.detach()
-        # visibility = visibility.detach()
-        # backbone 提取全局 & 局部特征
-        
-        # heatmap = None
-        # visibility = None
+
+        # self._vis_counter += 1
+        # if self._vis_counter %10 == 0 and not self.training:
+        #     # images_for_vis: 需要是 0–255 uint8
+        #     # 如果你 preprocess_image 里把数据拉到 [0,1]，这里要先 *255
+        #     imgs = images_raw.cpu().byte()
+        #     visualize_batch_and_save(
+        #         imgs,
+        #         heatmaps=heatmap.cpu(),
+        #         visibility=visibility.cpu(),
+        #         save_dir='./vis'
+        #     )
         
         
         feat_global, feat_local = self.backbone(images, heatmap, visibility)
@@ -383,3 +391,98 @@ class PoseBaseline(nn.Module):
             ) * cos_params.SCALE
             loss_dict[f'{prefix}_loss_cosface'] = loss_cos
         return loss_dict
+
+import os
+import time
+import torch
+import torch.nn.functional as F
+from PIL import Image, ImageDraw, ImageFont
+import cv2
+import numpy as np
+# 英文 COCO 17 keypoint 名称
+_KEYPOINT_NAMES_EN = [
+    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist",
+    "right_wrist", "left_hip", "right_hip", "left_knee", "right_knee",
+    "left_ankle", "right_ankle",
+]
+def visualize_batch_and_save(
+    img_tensors: torch.Tensor,
+    heatmaps:    torch.Tensor,
+    visibility:  torch.Tensor,
+    save_dir:    str = "vis"
+) -> None:
+    """
+    将一个 batch 可视化为 4×B 格式并保存：
+      row0 原图(RGB→BGR)
+      row1 伪彩热图
+      row2 原图+热图
+      row3 文本( key: value )
+    """
+    os.makedirs(save_dir, exist_ok=True)
+
+    # 1. 转 numpy uint8
+    imgs = img_tensors.detach().cpu().numpy()
+    # 如果值在 [0,1]，先 *255
+    if imgs.max() <= 1.01:
+        imgs = (imgs * 255).astype(np.uint8)
+    else:
+        imgs = imgs.astype(np.uint8)
+    B, C, H, W = imgs.shape
+
+    # 2. heatmaps、visibility
+    hms = heatmaps.detach().cpu().numpy()   # [B,17,h,w]
+    vis = visibility.detach().cpu().numpy() # [B,17]
+
+    rows = [ [] for _ in range(4) ]  # 四行，每行 put B 张图
+    font = ImageFont.load_default()
+
+    for i in range(B):
+        # 原图：RGB→BGR
+        img_rgb = imgs[i].transpose(1,2,0)      # H,W,3
+        img_bgr = img_rgb[..., ::-1].copy()      # H,W,3 BGR
+        rows[0].append(img_bgr)
+
+        # 伪彩热图：先取通道 max，再 resize & applyColorMap
+        hm = hms[i].max(axis=0)                 # h,w
+        hm_norm = (hm / (hm.max()+1e-6) * 255).astype(np.uint8)
+        hm_up = cv2.resize(hm_norm, (W, H), interpolation=cv2.INTER_LINEAR)
+        hm_color = cv2.applyColorMap(hm_up, cv2.COLORMAP_JET)  # H,W,3 BGR
+        rows[1].append(hm_color)
+
+        # 叠加
+        overlay = cv2.addWeighted(img_bgr, 0.6, hm_color, 0.4, 0)
+        rows[2].append(overlay)
+
+        # 文本行：PIL 画白底 + 文本 → 转 BGR
+        txt_img = Image.new("RGB", (W, H), "white")
+        draw = ImageDraw.Draw(txt_img)
+        lines = [f"{_KEYPOINT_NAMES_EN[k]}:{vis[i,k]:.2f}"
+                 for k in range(17)]
+        # 每行文本高度约 12px，根据 H 分配行距
+        line_h = H // 18
+        y = 0
+        for line in lines:
+            draw.text((5, y), line, fill="black", font=font)
+            y += line_h
+        # PIL→numpy RGB
+        txt_np = np.array(txt_img)
+        # 转 BGR
+        txt_bgr = txt_np[..., ::-1].copy()
+        rows[3].append(txt_bgr)
+
+        # 控制台也可以打印一下
+        # print(f"Sample {i} visibility:")
+        # for k, name in enumerate(_KEYPOINT_NAMES_EN):
+        #     print(f"  {name}: {vis[i,k]:.2f}")
+        # print("-"*40)
+
+    # 3. 拼接：先每行水平拼接，再纵向拼接四行
+    horz = [ np.concatenate(r, axis=1) for r in rows ]  # 四个大图
+    big = np.concatenate(horz, axis=0)                  # (4H) x (BW) x 3
+
+    # 4. 保存
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(save_dir, f"{ts}.png")
+    cv2.imwrite(path, big)
+    # print(f"Saved batch vis → {path}\n")

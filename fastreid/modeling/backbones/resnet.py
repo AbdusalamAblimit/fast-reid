@@ -243,6 +243,9 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 import copy
+
+from fastreid.utils.visualizer import visualize_tensor_list
+
 class PoseResNet(ResNet):
     """
     NOTE: this interface is experimental.
@@ -316,6 +319,7 @@ class PoseResNet(ResNet):
         # layer1 + NL
         x = self._forward_layer(self.layer1, self.NL_1, self.NL_1_idx, x)
 
+
         # 根据可见度mask热图
         if visibility is not None:
             vis_mask = (visibility >= 0.0).float()
@@ -323,11 +327,15 @@ class PoseResNet(ResNet):
                 vis_mask = vis_mask.unsqueeze(-1).unsqueeze(-1)
             elif vis_mask.dim() == 3:      # (B,17,1)
                 vis_mask = vis_mask.unsqueeze(-1)
-            heatmap = heatmap * vis_mask
+            heatmap_vis = heatmap * vis_mask
+
+
 
         # 融合热图特征
-        h = self.heatmap_conv(heatmap)   # (B,256,H,W)
+        h = self.heatmap_conv(heatmap_vis)   # (B,256,H,W)
         x_fused = x * h                  # 逐元素相乘
+
+        # visualize_tensor_list([x,heatmap,heatmap_vis,h,x_fused])
 
         # 全局分支：layer2~4、NL
         global_x = self._forward_branch(

@@ -7,11 +7,8 @@ MODEL:
     WITH_IBN: True
   META_ARCHITECTURE: PoseBaseline
 
-# DATASETS:
-#   NAMES: ("Market1501",)
-#   TESTS: ("Market1501",)
 
-OUTPUT_DIR: logs/market1501/sbs_R18-ibn-256-192
+OUTPUT_DIR: logs/occludeddukemtmc/sbs_R18-ibn-256-192-debug-resnet34
 
 
 INPUT:
@@ -19,17 +16,17 @@ INPUT:
   SIZE_TEST: [ 256, 192 ]
 
 DATASETS:
-  NAMES: ("Market1501",)
-  TESTS: ("Market1501",)
+  NAMES: ("OccludedDukeMTMC",)
+  TESTS: ("OccludedDukeMTMC",)
   POSE: true
 DATALOADER:
   NUM_WORKERS: 8
 SOLVER:
-#   AMP:
-#     ENABLED: true
-  MAX_EPOCH: 120
-  BASE_LR: 0.0007
-  WARMUP_ITERS: 3500
+  AMP:
+    ENABLED: true
+  # MAX_EPOCH: 160
+  # BASE_LR: 0.00060
+  # WARMUP_ITERS: 3500
 
 TEST:
   IMS_PER_BATCH: 64

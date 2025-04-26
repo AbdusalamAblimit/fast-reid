@@ -35,6 +35,8 @@ from .shinpuhkan import Shinpuhkan
 from .wildtracker import WildTrackCrop
 from .cuhk_sysu import cuhkSYSU
 
+from .occludeddukemtmcreid import OccludedDukeMTMC
+
 
 # Vehicle re-id datasets
 from .veri import VeRi

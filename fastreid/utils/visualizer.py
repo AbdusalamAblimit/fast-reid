@@ -276,3 +276,81 @@ class Visualizer:
     #         act = np.uint8(np.floor(act))
     #         all_acts.append(act)
     #     return all_acts
+
+
+
+import os
+import time
+import torch
+import torch.nn.functional as F
+import numpy as np
+from PIL import Image
+
+def visualize_tensor_list(tensor_list, out_dir='./vis'):
+    """
+    将 tensor_list 中所有形状为 (bs, c, h, w) 的张量，
+    resize 到 tensor_list[0] 的 (h0, w0)，然后将它们按
+    “(len+1)*bs 行、c 列” 的网格拼接成一张大图并保存为
+    out_dir/<timestamp>.png。
+
+    网格单元：每个通道都作为一张灰度图像单独展示。
+    每个样本占据 len(tensor_list) 行，每行 c 列，
+    行间用一行纯白图像分隔。
+
+    Args:
+        tensor_list (List[torch.Tensor]]): 张量列表，元素形状均为 (bs, c, h, w)。
+        out_dir (str): 保存目录，默认 './vis'。
+    """
+    # 确保输出目录存在
+    os.makedirs(out_dir, exist_ok=True)
+
+    # 取第一个张量的目标尺寸
+    ref = tensor_list[0]
+    bs, c, h0, w0 = ref.shape
+
+    # 统一 resize
+    resized = [ref]
+    for t in tensor_list[1:]:
+        # 双线性插值到 (h0, w0)
+        t_res = F.interpolate(t, size=(h0, w0), mode='bilinear', align_corners=False)
+        resized.append(t_res)
+
+    # 准备每一行（cell 行）的 PIL 图像
+    row_images = []
+    for sample_idx in range(bs):
+        # 对每个张量，取出该样本对应的 c 个通道，拼成一行
+        for t in resized:
+            # 分出每个通道，归一化到 [0,255]
+            ch_imgs = []
+            for ch in range(c):
+                arr = t[sample_idx, ch].detach().cpu().numpy()
+                mn, mx = arr.min(), arr.max()
+                if mx > mn:
+                    norm = (arr - mn) / (mx - mn)
+                else:
+                    norm = np.zeros_like(arr)
+                img8 = (norm * 255).astype(np.uint8)
+                ch_imgs.append(Image.fromarray(img8, mode='L'))
+            # 拼接 c 列
+            row = Image.new('L', (w0 * c, h0))
+            for i, im in enumerate(ch_imgs):
+                row.paste(im, (i * w0, 0))
+            row_images.append(row)
+        # 在每个样本后面插入一行分隔（纯白）
+        sep = Image.new('L', (w0 * c, h0), color=255)
+        row_images.append(sep)
+
+    # 组装最终大图
+    total_rows = len(row_images)       # = (len(tensor_list)+1)*bs
+    canvas_h = total_rows * h0
+    canvas_w = c * w0
+    canvas = Image.new('L', (canvas_w, canvas_h), color=0)
+
+    for idx, row in enumerate(row_images):
+        canvas.paste(row, (0, idx * h0))
+
+    # 保存
+    timestamp = int(time.time())
+    save_path = os.path.join(out_dir, f'{timestamp}.png')
+    canvas.save(save_path)
+    print(f'已保存可视化结果到: {save_path}')
