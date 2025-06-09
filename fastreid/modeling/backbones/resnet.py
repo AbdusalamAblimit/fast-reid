@@ -143,7 +143,12 @@ class ResNet(nn.Module):
 
         # fmt: off
         if with_nl: self._build_nonlocal(layers, non_layers, bn_norm)
-        else:       self.NL_1_idx = self.NL_2_idx = self.NL_3_idx = self.NL_4_idx = []
+        else:       
+            self.NL_1_idx = self.NL_2_idx = self.NL_3_idx = self.NL_4_idx = []
+            self.NL_1 = nn.ModuleList()
+            self.NL_2 = nn.ModuleList()
+            self.NL_3 = nn.ModuleList()
+            self.NL_4 = nn.ModuleList()
         # fmt: on
 
     def _make_layer(self, block, planes, blocks, stride=1, bn_norm="BN", with_ibn=False, with_se=False):
@@ -322,7 +327,7 @@ class PoseResNet(ResNet):
 
         # 根据可见度mask热图
         if visibility is not None:
-            vis_mask = (visibility >= 0.0).float()
+            vis_mask = visibility
             if vis_mask.dim() == 2:        # (B,17)
                 vis_mask = vis_mask.unsqueeze(-1).unsqueeze(-1)
             elif vis_mask.dim() == 3:      # (B,17,1)
@@ -430,7 +435,7 @@ def build_pose_resnet_backbone(cfg):
         model.add_module('local_conv_proj', local_proj)
         model.heatmap_conv = nn.Conv2d(17, 64, kernel_size=1, bias=False)
     
-    
+    pretrain_path = "pretrained/lup_moco_r101.pth"
     if pretrain:
         if pretrain_path:
             state_dict = torch.load(pretrain_path, map_location='cpu')
@@ -575,7 +580,7 @@ def build_resnet_backbone(cfg):
         )
         torch.nn.init.kaiming_normal_(proj.weight, mode='fan_out', nonlinearity='relu')
         model.add_module('conv_proj', proj)
-    
+    # pretrain_path = "pretrained/lup_moco_r50.pth"
     if pretrain:
         # Load pretrain path if specifically
         if pretrain_path:

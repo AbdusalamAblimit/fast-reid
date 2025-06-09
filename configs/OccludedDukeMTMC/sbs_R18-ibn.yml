@@ -3,12 +3,12 @@ _BASE_: ../Base-SBS.yml
 MODEL:
   BACKBONE:
     NAME: build_pose_resnet_backbone
-    DEPTH: 34x
+    DEPTH: 101x
     WITH_IBN: True
   META_ARCHITECTURE: PoseBaseline
 
 
-OUTPUT_DIR: logs/occludeddukemtmc/sbs_R18-ibn-256-192-debug-resnet34
+OUTPUT_DIR: logs/market1501/sbs_R18-ibn-256-192-resnet101-vis-new-lup-unfreeze_posnet-new_freezing20ep-ep120
 
 
 INPUT:
@@ -24,6 +24,7 @@ DATALOADER:
 SOLVER:
   AMP:
     ENABLED: true
+  MAX_EPOCH: 120
   # MAX_EPOCH: 160
   # BASE_LR: 0.00060
   # WARMUP_ITERS: 3500

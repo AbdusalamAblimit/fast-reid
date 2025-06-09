@@ -205,6 +205,73 @@ POSE_CKPT = ("https://download.openmmlab.com/mmpose/v1/body_2d_keypoint/topdown_
 VIS_CFG = "pose/config_vispredict.py"
 VIS_CKPT = "pretrained/best_coco_AP_epoch_210.pth"
 
+from fastreid.modeling.heads.embedding_head import EmbeddingHead
+from fastreid.layers import pooling, any_softmax
+
+
+class ConcatHead(nn.Module):
+    """
+    对两个 head 输出的 feature 向量做拼接后，
+    进行 l2 归一化 + margin-softmax 分类。
+    """
+
+    def __init__(
+        self,
+        *,
+        in_feat_dim: int,         # = feat_dim_global + feat_dim_local
+        num_classes: int,
+        cls_type: str,
+        scale: float,
+        margin: float,
+    ):
+        super().__init__()
+        # trainable 权重
+        self.weight = nn.Parameter(torch.Tensor(num_classes, in_feat_dim))
+        # margin-softmax 层
+        assert hasattr(any_softmax, cls_type), f"Unknown cls type {cls_type}"
+        self.cls_layer = getattr(any_softmax, cls_type)(num_classes, scale, margin)
+
+        self.reset_parameters()
+
+
+
+    def reset_parameters(self):
+        nn.init.normal_(self.weight, std=0.01)
+
+    def forward(self, features, targets=None):
+        """
+        Args:
+          features: Tensor[B, 2*D]  —— 拼接后的向量
+          targets:  Tensor[B] 或 None
+        Returns:
+          dict with:
+            - "features": original features  (用于 triplet, circle, …)
+            - "cls_outputs": margin-softmax 输出 (用于 CrossEntropy)
+        """
+        # eval 直接返回特征 + 线性 logits
+        if not self.training:
+            return {
+                "features": features,
+                "pred_class_logits": F.linear(features, self.weight),
+            }
+
+        # training
+        # 1) l2 normalize
+        feat_norm   = F.normalize(features)           # [B, 2D]
+        weight_norm = F.normalize(self.weight)        # [C, 2D]
+
+        # 2) 线性映射得到 logits
+        logits = F.linear(feat_norm, weight_norm)     # [B, C]
+
+        # 3) margin-softmax
+        cls_out = self.cls_layer(logits.clone(), targets)
+
+        return {
+            "features":    features,
+            "cls_outputs": cls_out,
+        }
+
+
 
 @META_ARCH_REGISTRY.register()
 class PoseBaseline(nn.Module):
@@ -222,11 +289,13 @@ class PoseBaseline(nn.Module):
         backbone,
         global_head,
         local_head,
+        concat_head,
         pixel_mean,
         pixel_std,
         pose_net,
         device,
         loss_kwargs=None
+
        ):
         super().__init__()
         # 主干网络，输入 img, heatmap, visibility
@@ -234,6 +303,7 @@ class PoseBaseline(nn.Module):
         # 分类与度量头：全局、局部
         self.global_head = global_head
         self.local_head = local_head
+        self.concat_head = concat_head
         # 损失超参
         self.loss_kwargs = loss_kwargs
         # 图像归一化参数
@@ -243,7 +313,7 @@ class PoseBaseline(nn.Module):
 
         self.pose_net = pose_net
         for name, param in pose_net.named_parameters():
-            param.requires_grad = False
+            param.requires_grad = True
             
             
             
@@ -261,6 +331,13 @@ class PoseBaseline(nn.Module):
         # 假设 cfg.MODEL.GLOBAL_HEAD / LOCAL_HEAD 配置
         global_head = build_heads(cfg)
         local_head = build_heads(cfg)
+        concat_head = ConcatHead(
+                        in_feat_dim= cfg.MODEL.BACKBONE.FEAT_DIM  * 2,
+                        num_classes= cfg.MODEL.HEADS.NUM_CLASSES,
+                        cls_type= cfg.MODEL.HEADS.CLS_LAYER,
+                        scale=    cfg.MODEL.HEADS.SCALE,
+                        margin=      cfg.MODEL.HEADS.MARGIN,
+                        )
         pose_cfg = Config.fromfile(VIS_CFG)
         posenet = build_posenet(pose_cfg.model)
         ckpt = load_checkpoint(posenet, VIS_CKPT, map_location='cpu')
@@ -270,11 +347,13 @@ class PoseBaseline(nn.Module):
             'backbone': backbone,
             'global_head': global_head,
             'local_head': local_head,
+            'concat_head': concat_head,
             'pixel_mean': cfg.MODEL.PIXEL_MEAN,
             'pixel_std': cfg.MODEL.PIXEL_STD,
             'loss_kwargs': cfg.MODEL.LOSSES,
             'pose_net': posenet,
-            'device':  cfg.MODEL.DEVICE
+            'device':  cfg.MODEL.DEVICE,
+
         }
 
     @property
@@ -305,9 +384,9 @@ class PoseBaseline(nn.Module):
         # images_raw = batched_inputs["img"].clone()
         
         images= self.preprocess_image(batched_inputs)
-        with torch.no_grad():
-            pose_res = self.pose_net.backbone(images)
-            pose_res = self.pose_net.head(pose_res)
+        # with torch.no_grad():
+        pose_res = self.pose_net.backbone(images)
+        pose_res = self.pose_net.head(pose_res)
         heatmap = pose_res[0]
         visibility = pose_res[1]
 
@@ -334,19 +413,26 @@ class PoseBaseline(nn.Module):
             out_g = self.global_head(feat_global, pid)
             # 局部头输出
             out_l = self.local_head(feat_local, pid)
+            
+            # out_c = torch.cat([out_g['features'], out_l['features']], dim=1)
+            # out_c = self.concat_head(out_c,pid)
+            
             # 分别计算损失
             loss_g = self._compute_losses(out_g, pid, prefix='global')
             loss_l = self._compute_losses(out_l, pid, prefix='local')
+            # loss_c = self._compute_losses(out_c, pid, prefix='concat')
             # 合并两个损失字典
             loss_dict = {}
             loss_dict.update(loss_g)
             loss_dict.update(loss_l)
+            # loss_dict.update(loss_c)
             return loss_dict
         else:
             # 测试阶段只返回两种输出
             out_g = self.global_head(feat_global)
             out_l = self.local_head(feat_local)
-            return {'global': out_g, 'local': out_l}
+            out_c = torch.cat([out_g, out_l], dim=1)
+            return {'global': out_g, 'local': out_l, 'concat': out_c}
             # return out_g
 
     def _compute_losses(self, outputs, targets, prefix=''):

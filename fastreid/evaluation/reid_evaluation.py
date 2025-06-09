@@ -186,11 +186,12 @@ class PoseReidEvaluator(DatasetEvaluator):
         # 抽取特征
         out_g = outputs['global']
         out_l = outputs['local']
+        out_c = outputs['concat']
         # out_g = outputs
         # out_l = out_g
         fg = out_g.to(self._cpu)
         fl = out_l.to(self._cpu)
-        fc = torch.cat([fg, fl], dim=1)
+        fc = out_c.to(self._cpu)
 
         # 同步收集
         for name, feat in [('global', fg), ('local', fl), ('concat', fc)]:

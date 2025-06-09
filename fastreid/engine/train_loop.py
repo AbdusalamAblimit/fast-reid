@@ -162,6 +162,43 @@ class TrainerBase:
             h.after_train()
 
     def before_epoch(self):
+        # ========== 冻结 ==========
+        if self.epoch == 0:
+            # 冻 backbone & posenet
+            for name, m in self.model.backbone.named_modules():
+                logger.info(f"Freeze:{name}")
+                m.eval()
+                for p in m.parameters():
+                    p.requires_grad_(False)
+
+            for name, m in self.model.pose_net.named_modules():
+                logger.info(f"Freeze:{name}")
+                m.eval()
+                for p in m.parameters():
+                    p.requires_grad_(False)
+
+            # 保留三层可训练
+            for n, p in self.model.backbone.named_parameters():
+                if any(k in n for k in ("heatmap_conv",
+                                         "conv_proj",
+                                         "local_conv_proj")):
+                    logger.info(f"Unfreeze:{n}")
+                    p.requires_grad_(True)
+
+        # ========== 解冻 backbone ==========
+        elif self.epoch == 6:
+            logger.info(f"Unfreeze: backbone")
+            self.model.backbone.train()
+            for p in self.model.backbone.parameters():
+                p.requires_grad_(True)
+
+        # ========== 解冻 posenet ==========
+        elif self.epoch == 15:
+            self.model.pose_net.train()
+            logger.info(f"Unfreeze: pose_net")
+            for p in self.model.pose_net.parameters():
+                p.requires_grad_(True)
+            
         self.storage.epoch = self.epoch
 
         for h in self._hooks:
