@@ -332,7 +332,7 @@ class PoseResNet(ResNet):
                 vis_mask = vis_mask.unsqueeze(-1).unsqueeze(-1)
             elif vis_mask.dim() == 3:      # (B,17,1)
                 vis_mask = vis_mask.unsqueeze(-1)
-            heatmap_vis = heatmap * vis_mask
+            heatmap_vis = heatmap # * vis_mask
 
 
 

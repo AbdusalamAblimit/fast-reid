@@ -2,11 +2,33 @@ _BASE_: ../Base-SBS.yml
 
 MODEL:
   BACKBONE:
+    NAME: build_pose_resnet_backbone
     DEPTH: 101x
-    WITH_IBN: True
-
+    # WITH_IBN: False
+    # WITH_NL : False
+  META_ARCHITECTURE: PoseBaseline
 DATASETS:
   NAMES: ("MSMT17",)
-  TESTS: ("MSMT17",)
+  TESTS: ("MSMT17","Market1501")
+  POSE: true
 
-OUTPUT_DIR: logs/msmt17/sbs_R101-ibn
+
+
+INPUT:
+  SIZE_TRAIN: [ 256, 192 ]
+  SIZE_TEST: [ 256, 192 ]
+  
+OUTPUT_DIR: logs/msmt17/sbs-R101-ibn-debug0512-ep90-no-use-vis
+
+DATALOADER:
+  NUM_WORKERS: 8
+SOLVER:
+  AMP:
+    ENABLED: true
+  MAX_EPOCH: 90
+  # ETA_MIN_LR: 5e-07
+  # BASE_LR: 0.0007
+  # WARMUP_ITERS: 2000
+
+TEST:
+  IMS_PER_BATCH: 64
